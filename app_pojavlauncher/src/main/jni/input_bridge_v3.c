@@ -30,8 +30,6 @@
 #define EVENT_TYPE_MOUSE_BUTTON 1006
 #define EVENT_TYPE_SCROLL 1007
 
-jint (*orig_ProcessImpl_forkAndExec)(JNIEnv *env, jobject process, jint mode, jbyteArray helperpath, jbyteArray prog, jbyteArray argBlock, jint argc, jbyteArray envBlock, jint envc, jbyteArray dir, jintArray std_fds, jboolean redirectErrorStream);
-
 static void registerFunctions(JNIEnv *env);
 
 jint JNI_OnLoad(JavaVM* vm, __attribute__((unused)) void* reserved) {
@@ -228,41 +226,6 @@ void sendData(int type, int i1, int i2, int i3, int i4) {
         pojav_environ->inEventIndex -= EVENT_WINDOW_SIZE;
 
     atomic_fetch_add_explicit(&pojav_environ->eventCounter, 1, memory_order_acquire);
-}
-
-/**
- * Hooked version of java.lang.UNIXProcess.forkAndExec()
- * which is used to handle the "open" command.
- */
-jint
-hooked_ProcessImpl_forkAndExec(JNIEnv *env, jobject process, jint mode, jbyteArray helperpath, jbyteArray prog, jbyteArray argBlock, jint argc, jbyteArray envBlock, jint envc, jbyteArray dir, jintArray std_fds, jboolean redirectErrorStream) {
-    char *pProg = (char *)((*env)->GetByteArrayElements(env, prog, NULL));
-
-    // Here we only handle the "xdg-open" command
-    if (strcmp(basename(pProg), "xdg-open") != 0) {
-        (*env)->ReleaseByteArrayElements(env, prog, (jbyte *)pProg, 0);
-        return orig_ProcessImpl_forkAndExec(env, process, mode, helperpath, prog, argBlock, argc, envBlock, envc, dir, std_fds, redirectErrorStream);
-    }
-    (*env)->ReleaseByteArrayElements(env, prog, (jbyte *)pProg, 0);
-
-    Java_org_lwjgl_glfw_CallbackBridge_nativeClipboard(env, NULL, /* CLIPBOARD_OPEN */ 2002, argBlock);
-    return 0;
-}
-
-void hookExec() {
-    jclass cls;
-    orig_ProcessImpl_forkAndExec = dlsym(RTLD_DEFAULT, "Java_java_lang_UNIXProcess_forkAndExec");
-    if (!orig_ProcessImpl_forkAndExec) {
-        orig_ProcessImpl_forkAndExec = dlsym(RTLD_DEFAULT, "Java_java_lang_ProcessImpl_forkAndExec");
-        cls = (*pojav_environ->runtimeJNIEnvPtr_JRE)->FindClass(pojav_environ->runtimeJNIEnvPtr_JRE, "java/lang/ProcessImpl");
-    } else {
-        cls = (*pojav_environ->runtimeJNIEnvPtr_JRE)->FindClass(pojav_environ->runtimeJNIEnvPtr_JRE, "java/lang/UNIXProcess");
-    }
-    JNINativeMethod methods[] = {
-        {"forkAndExec", "(I[B[B[BI[BI[B[IZ)I", (void *)&hooked_ProcessImpl_forkAndExec}
-    };
-    (*pojav_environ->runtimeJNIEnvPtr_JRE)->RegisterNatives(pojav_environ->runtimeJNIEnvPtr_JRE, cls, methods, 1);
-    printf("Registered forkAndExec\n");
 }
 
 /**
